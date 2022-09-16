@@ -1,0 +1,13 @@
+service: cake-ordering-system 
+
+provider:
+  name: aws
+  runtime: nodejs8.10
+
+functions:
+  createOrder:
+    handler: handler.createOrder
+    events:
+      - http:
+          path: /order
+          method: post
