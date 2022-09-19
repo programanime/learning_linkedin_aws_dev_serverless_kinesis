@@ -2,6 +2,9 @@
 
 const uuid = require('uuid');
 const AWS = require('aws-sdk');
+AWS.config.update({region:process.env.region});
+
+
 const dynamo = new AWS.DynamoDB.DocumentClient();
 const kinesis = new AWS.Kinesis();
 
@@ -23,18 +26,24 @@ module.exports.createOrder = body => {
 }
 
 module.exports.placeNewOrder = order => {
-    return saveOrder(order).then(() => {
+    return this.saveOrder(order).then(() => {
         return placeOrderStream(order)
     })
 }
 
 module.exports.fulfillOrder = (orderId, fulfillmentId) => {
     return getOrderById(orderId).then(savedOrder => {
-        const order = createFulfillmentOrder(savedOrder, fulfillmentId);
+        const order = createFulfillmentOrder(savedOrder.Item, fulfillmentId);
         order.orderId = orderId;
-        return saveOrder(order).then(() => {
+        order.eventType = 'order_fulfilled';
+        return this.saveOrder(order).then(() => {
+            console.log("la orden guardada tiene");
+            console.log(order);
             return placeOrderStream(order)
         });
+    }).catch(error => {
+        console.log("error consultando la orden");
+        console.log(error);
     });
 }
 
@@ -54,10 +63,15 @@ function getOrderById(orderId){
         TableName: TABLE_NAME
     };
 
+    console.log("the params are : ");
+    console.log(params);
+
     return dynamo.get(params).promise();
 }
 
-function saveOrder(order) {
+// getOrderById("d6b6c570-377f-11ed-9599-8f25c6af26b2").then(console.log).catch(console.log);
+
+module.exports.saveOrder = (order) => {
     const params = {
         TableName: TABLE_NAME,
         Item: order
@@ -74,4 +88,32 @@ function placeOrderStream(order) {
     }
 
     return kinesis.putRecord(params).promise();
+}
+
+module.exports.updateOrderForDelivery = (orderId) => {
+    console.log("va a o obtener la roden 2.1");
+    console.log(orderId);
+    return getOrderById(orderId).then((order) => {
+        console.log("obtuvo la orden");
+        console.log(order);
+        order = order.Item;
+        order.sentToDeliveryDate = Date.now();
+        return order;
+    }).catch((err) => {
+        console.log("error");
+        console.log(err);
+    }).finally(() => {
+        console.log("finalizo el proceso de la orden");
+        console.log("finalizo el proceso de la ordne al tratar de obtenerla desde dynamo");
+    });
+}
+
+
+module.exports.updateOrderAfterDelivery = (orderId, deliveryCompanyId) => {
+    return getOrderById(orderId).then((order) => {
+        order = order.Item;
+        order.deliveryCompanyId = deliveryCompanyId;
+        order.deliveryDate =  Date.now();
+        return order;
+    })
 }

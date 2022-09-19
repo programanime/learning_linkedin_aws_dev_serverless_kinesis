@@ -74,7 +74,7 @@ module.exports.orderDelivered = async (event) => {
 module.exports.notifyCustomerService = async (event) => {
   console.log('Lets imagine that we call the customer service endpoint');
 
-  return 'done';
+  return createResponse(200, `Order with this`);
 }
 
 function getCakeProducerPromise(records) {

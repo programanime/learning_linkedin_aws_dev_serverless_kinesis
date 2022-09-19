@@ -14,6 +14,11 @@
 custom:
   orderStreamName: orderStreamV2
   orderTableName: orderTableV2
+  cakeProducerEmail: ingeneodemos@gmail.com
+  orderingSystemEmail: cuenta.periodica.1@gmail.com
+  deliveryQueueName: deliveryServiceQueue
+  customerServiceQueueName: customerServiceQueue
+  region: us-east-1
 
 service: orders
 # app and org for use with dashboard.serverless.com
@@ -26,7 +31,7 @@ frameworkVersion: '2'
 
 provider:
   name: aws
-  runtime: nodejs12.x
+  runtime: nodejs14.x
   lambdaHashingVersion: 20201221
 
   iamRoleStatements:
@@ -43,6 +48,18 @@ provider:
         - "kinesis:PutRecord"
       Resource:
         - arn:aws:kinesis:${aws:region}:${aws:accountId}:stream/${self:custom.orderStreamName}
+    - Effect: "Allow"
+      Action:
+        - "ses:SendEmail"
+      Resource: "*"
+      Condition: 
+        StringEquals:
+          "ses:FromAddress": "${self:custom.orderingSystemEmail}"
+    - Effect: "Allow"
+      Action:
+        - "sqs:SendMessage"
+      Resource:
+        - arn:aws:sqs:${aws:region}:${aws:accountId}:${self:custom.deliveryQueueName}
 # you can overwrite defaults here
 #  stage: dev
 #  region: us-east-1
@@ -85,6 +102,7 @@ functions:
           path: /order
           method: post
     environment:
+      region: ${self:custom.region}
       orderTableName: ${self:custom.orderTableName}
       orderStreamName: ${self:custom.orderStreamName}
 
@@ -95,8 +113,57 @@ functions:
           path: /fulfill
           method: post
     environment:
+      region: ${self:custom.region}
       orderTableName: ${self:custom.orderTableName}
       orderStreamName: ${self:custom.orderStreamName}
+
+  notificationOrders:
+    handler: handler.notificationOrders
+    events:
+      - stream:
+          arn: arn:aws:kinesis:${aws:region}:${aws:accountId}:stream/${self:custom.orderStreamName}
+    environment:
+      region: ${self:custom.region}
+      cakeProducerEmail: ${self:custom.cakeProducerEmail}
+      orderingSystemEmail: ${self:custom.orderingSystemEmail}
+      deliveryQueueName: ${self:custom.deliveryQueueName}
+      orderTableName: ${self:custom.orderTableName}
+      deliveryQueueUrl: https://sqs.${self:custom.region}.amazonaws.com/${aws:accountId}/${self:custom.deliveryQueueName}
+
+  notifyDeliveryCompany:
+    handler: handler.notifyDeliveryCompany
+    events:
+      - sqs:
+          arn: arn:aws:sqs:${aws:region}:${aws:accountId}:${self:custom.deliveryQueueName}
+          batchSize: 1
+    environment:
+      region: ${self:custom.region}
+      cakeProducerEmail: ${self:custom.cakeProducerEmail}
+      orderingSystemEmail: ${self:custom.orderingSystemEmail}
+      deliveryQueueName: ${self:custom.deliveryQueueName}
+      deliveryQueueUrl: https://sqs.${self:custom.region}.amazonaws.com/${aws:accountId}/${self:custom.deliveryQueueName}
+      orderTableName: ${self:custom.orderTableName}
+  
+  orderDelivered:
+    handler: handler.orderDelivered
+    events:
+      - http:
+          path: /order/delivered
+          method: post
+    environment:
+      region: ${self:custom.region}
+      orderTableName: ${self:custom.orderTableName}
+      customerServiceQueueName: ${self:custom.customerServiceQueueName}
+      customerServiceQueueUrl: https://sqs.${self:custom.region}.amazonaws.com/${aws:accountId}/${self:custom.customerServiceQueueName}
+      deliveryQueueName: ${self:custom.deliveryQueueName}
+      deliveryQueueUrl: https://sqs.${self:custom.region}.amazonaws.com/${aws:accountId}/${self:custom.deliveryQueueName}
+
+  notifyCustomerService:
+    handler: handler.notifyCustomerService
+    events:
+      - sqs:
+          arn: arn:aws:sqs:${aws:region}:${aws:accountId}:${self:custom.customerServiceQueueName}
+          batchSize: 1
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
 #    Check the event documentation for details
@@ -154,6 +221,14 @@ resources:
           - AttributeName: orderId
             KeyType: HASH
         BillingMode: PAY_PER_REQUEST
+    deliveryServiceQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.deliveryQueueName}
+    customerServiceQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.customerServiceQueueName}
 #resources:
 #  Resources:
 #    NewResource:
